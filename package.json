@@ -1,0 +1,32 @@
+{
+  "name": "kennys-moas",
+  "private": true,
+  "version": "1.5.0-p5f",
+  "type": "module",
+  "description": "KENNY'S MOAS — application scolaire local-first (build esbuild, voir README)",
+  "packageManager": "pnpm@10.34.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node tools/build-standalone.mjs",
+    "test": "tsx --test \"tests/*.test.ts\"",
+    "verify": "node tools/verify-sync.mjs",
+    "verify:rebuild": "node tools/verify-sync.mjs --rebuild",
+    "verify:ci": "node tools/verify-sync.mjs --rebuild --require-lock",
+    "check": "pnpm run build && pnpm test && pnpm run verify"
+  },
+  "dependencies": {
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.7",
+    "tsx": "4.21.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

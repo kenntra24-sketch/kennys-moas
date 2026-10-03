@@ -1,0 +1,51 @@
+# À lancer UNE SEULE FOIS à la main (onglet Actions → « Générer le verrou pnpm » → Run workflow).
+# Il crée source/pnpm-lock.yaml à partir de source/package.json, prouve qu'il est installable
+# (pnpm install --frozen-lockfile), puis le commite sur main. Il refuse de tourner si le verrou existe déjà
+# (pour qu'un verrou ne change jamais en silence).
+# COMPORTEMENT VOLONTAIRE : un commit fait avec le jeton automatique de GitHub (GITHUB_TOKEN) ne déclenche AUCUN autre
+# workflow (règle documentée par GitHub ; seule exception : workflow_dispatch). Ce workflow lance donc lui-même, en dernière
+# étape, « Compiler, tester, publier » (gh workflow run). Un seul clic suffit. S'il échoue avant, le principal n'est pas lancé.
+name: Générer le verrou pnpm
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: verrou-pnpm
+  cancel-in-progress: false
+jobs:
+  verrou:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuser si le verrou existe déjà
+        run: |
+          if [ -f source/pnpm-lock.yaml ]; then
+            echo "::error::source/pnpm-lock.yaml existe déjà : rien à générer. Pour le mettre à jour volontairement, fais-le dans un clone et commite-le."
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: source/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+      - name: Générer le verrou
+        working-directory: source
+        run: pnpm install --lockfile-only
+      - name: Prouver que le verrou est installable
+        working-directory: source
+        run: |
+          test -f pnpm-lock.yaml
+          pnpm install --frozen-lockfile
+      - name: Enregistrer le verrou
+        run: |
+          git config user.name "compilation-auto"
+          git config user.email "actions@users.noreply.github.com"
+          git add source/pnpm-lock.yaml
+          git commit -m "Ajout du verrou pnpm (source/pnpm-lock.yaml)" && git push
+      - name: Lancer « Compiler, tester, publier » (premier vrai test de la chaîne complète)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build.yml --ref "${{ github.ref_name }}"

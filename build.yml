@@ -1,0 +1,59 @@
+# Publication automatique : push sur main (code source modifié) → build → copie à la racine → tests → vérification → commit.
+# GitHub Pages sert la racine de la branche main : c'est cette racine qui est publiée.
+# Gestionnaire de paquets UNIQUE : pnpm (version exacte dans source/package.json, champ « packageManager »).
+# Verrou UNIQUE : source/pnpm-lock.yaml. L'installation est « --frozen-lockfile » : sans verrou, ou avec un verrou qui ne
+# correspond pas à package.json, le workflow ÉCHOUE (il n'installe jamais « au hasard »). Rien n'est alors publié.
+# Premier démarrage : lancer une fois « Générer le verrou pnpm » (onglet Actions) : il lance ensuite celui-ci automatiquement.
+# Ordre garanti : l'étape qui publie (commit/push) est la DERNIÈRE ; si une étape précédente échoue, rien n'est publié.
+# Lancement manuel possible : onglet Actions → « Compiler, tester, publier » → Run workflow.
+name: Compiler, tester, publier
+on:
+  push:
+    branches: [main]
+    paths: ['source/**', '.github/workflows/build.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: build-main
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vérifier que le verrou pnpm existe
+        run: |
+          if [ ! -f source/pnpm-lock.yaml ]; then
+            echo "::error::source/pnpm-lock.yaml est absent : installation non reproductible. Lance d'abord le workflow « Générer le verrou pnpm » (onglet Actions), puis relance celui-ci."
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: source/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+      - name: Installer les dépendances (strictement selon le verrou)
+        working-directory: source
+        run: pnpm install --frozen-lockfile
+      - name: Compiler
+        working-directory: source
+        run: pnpm run build
+      - name: Copier à la racine (fichiers statiques puis fichiers compilés)
+        run: |
+          cp -r source/public/. .
+          cp source/dist/index.html source/dist/app.js source/dist/app.css source/dist/sw.js .
+      - name: Tests
+        working-directory: source
+        run: pnpm test
+      - name: Vérifier la publication (invariants + racine à jour avec le source + verrou présent)
+        working-directory: source
+        run: pnpm run verify:ci
+      - name: Enregistrer si quelque chose a changé
+        run: |
+          git config user.name "compilation-auto"
+          git config user.email "actions@users.noreply.github.com"
+          git add index.html app.js app.css sw.js
+          (cd source/public && find . -type f | sed 's#^\./##') | while read f; do git add -- "$f"; done
+          if git diff --cached --quiet; then echo "Rien à publier."; else git commit -m "Compilation automatique [skip ci]" && git push; fi
